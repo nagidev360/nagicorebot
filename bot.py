@@ -434,38 +434,124 @@ def valid_media_url(url):
         return False
 
 async def download_media(url, mode, quality="best"):
+    """
+    Smart downloader:
+    - Respects MAX_DOWNLOAD_MB.
+    - For video, tries the requested quality and automatically falls back
+      through lower resolutions when the result is too large.
+    - Prefers progressive MP4 when available to avoid oversized video+audio merges.
+    """
     job = WORK / uuid.uuid4().hex
     job.mkdir()
-    output = job / "%(title).80s.%(ext)s"
+
     import yt_dlp
+
+    max_bytes = MAX_MB * 1024 * 1024
+    output = job / "%(title).80s.%(ext)s"
+
+    if mode == "mp3":
+        formats = [
+            "bestaudio[filesize<=%d]/best[filesize<=%d]" % (max_bytes, max_bytes),
+            "bestaudio/best",
+        ]
+        postprocessors = [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }]
+    else:
+        requested = {
+            "720": 720,
+            "480": 480,
+            "360": 360,
+            "240": 240,
+            "144": 144,
+        }.get(str(quality), 720)
+
+        levels = [x for x in (720, 480, 360, 240, 144) if x <= requested]
+
+        # Prefer single-file MP4 first. These are much easier to keep under
+        # Telegram's configured size limit. Fall back to merged streams.
+        formats = []
+        for height in levels:
+            formats.append(
+                f"best[height<={height}][ext=mp4][filesize<={max_bytes}]"
+            )
+            formats.append(
+                f"best[height<={height}][ext=mp4]"
+            )
+            formats.append(
+                f"bv*[height<={height}][ext=mp4][filesize<={max_bytes}]"
+                f"+ba[ext=m4a][filesize<={max_bytes}]"
+            )
+            formats.append(
+                f"bv*[height<={height}][ext=mp4]+ba[ext=m4a]"
+            )
+
+        formats.append("best[ext=mp4]")
+        formats.append("best")
+
+        postprocessors = [{
+            "key": "FFmpegVideoConvertor",
+            "preferedformat": "mp4",
+        }]
+
     opts = {
         "outtmpl": str(output),
         "noplaylist": True,
         "quiet": True,
-        "no_warnings": True,
+        "no_warnings": False,
         "restrictfilenames": True,
-        "max_filesize": MAX_MB * 1024 * 1024,
+        "format": "/".join(formats),
+        "merge_output_format": "mp4",
+        "retries": 3,
+        "fragment_retries": 3,
+        "continuedl": True,
+        "overwrites": True,
     }
+
     if mode == "mp3":
-        opts.update({"format": "bestaudio/best", "postprocessors": [{
-            "key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"
-        }]})
+        opts["postprocessors"] = postprocessors
     else:
-        fmt = "bv*+ba/b"
-        if quality == "720":
-            fmt = "bv*[height<=720]+ba/b[height<=720]"
-        elif quality == "480":
-            fmt = "bv*[height<=480]+ba/b[height<=480]"
-        opts.update({"format": fmt, "merge_output_format": "mp4"})
+        opts["postprocessors"] = postprocessors
+
     try:
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(opts).download([url]))
-        files = [p for p in job.iterdir() if p.is_file()]
-        if not files: raise RuntimeError("No media file returned.")
-        return files[0], job
+
+        def run_download():
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.download([url])
+
+        result = await loop.run_in_executor(None, run_download)
+
+        if result not in (0, None):
+            raise RuntimeError("yt-dlp returned a download error.")
+
+        files = [
+            p for p in job.iterdir()
+            if p.is_file() and not p.name.endswith((".part", ".ytdl"))
+        ]
+
+        if not files:
+            raise RuntimeError("No media file returned.")
+
+        # Select the actual output file and enforce the final size limit.
+        files.sort(key=lambda p: p.stat().st_size, reverse=True)
+        path = files[0]
+        size = path.stat().st_size
+
+        if size > max_bytes:
+            raise RuntimeError(
+                f"Downloaded file is {size / 1024 / 1024:.1f} MB; "
+                f"configured limit is {MAX_MB} MB."
+            )
+
+        return path, job
+
     except Exception:
         shutil.rmtree(job, ignore_errors=True)
         raise
+
 
 async def media_buttons(url):
     token = uuid.uuid4().hex[:12]
