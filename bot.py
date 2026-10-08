@@ -327,10 +327,9 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rows = db.execute("SELECT mode,status,source FROM history WHERE user_id=? ORDER BY id DESC LIMIT 8", (q.from_user.id,)).fetchall()
         if not rows:
             return await q.edit_message_text("📜 No history yet.", reply_markup=menu())
-        body = "📜 Recent History
-
-" + "
-".join(f"• {m.upper()} — {st} — {src[:35]}" for m,st,src in rows)
+        body = "📜 Recent History\n\n" + "\n".join(
+            f"• {m.upper()} — {st} — {src[:35]}" for m,st,src in rows
+        )
         return await q.edit_message_text(body, reply_markup=menu())
     if data == "stats":
         users = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
