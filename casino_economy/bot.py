@@ -2,6 +2,18 @@
 import logging
 import time
 from datetime import timedelta
+from dotenv import load_dotenv
+
+load_dotenv()  # Load local .env before importing config.
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+import config
+import database as db
+import games
+import logging
+import time
+from datetime import timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 import config
