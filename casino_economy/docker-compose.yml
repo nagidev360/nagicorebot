@@ -1,0 +1,11 @@
+services:
+  casino-bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - casino_data:/app/data
+    environment:
+      DB_PATH: /app/data/casino.sqlite3
+volumes:
+  casino_data:
