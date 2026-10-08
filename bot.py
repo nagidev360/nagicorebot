@@ -70,11 +70,12 @@ def group_row(chat_id):
 
 def menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎬 Media Downloader", callback_data="media"),
+        [InlineKeyboardButton("🎬 Downloader", callback_data="media"),
          InlineKeyboardButton("🔄 Converter", callback_data="convert")],
-        [InlineKeyboardButton("👤 Profile", callback_data="profile"),
-         InlineKeyboardButton("📊 Stats", callback_data="stats")],
-        [InlineKeyboardButton("❓ Help", callback_data="help")]
+        [InlineKeyboardButton("📜 History", callback_data="history"),
+         InlineKeyboardButton("👤 Profile", callback_data="profile")],
+        [InlineKeyboardButton("📊 Stats", callback_data="stats"),
+         InlineKeyboardButton("❓ Help", callback_data="help")]
     ])
 
 def help_text():
@@ -184,7 +185,15 @@ async def warn_cmd(update, context):
     count = (row[0] if row else 0) + 1
     db.execute("INSERT OR REPLACE INTO warnings(chat_id,user_id,count) VALUES(?,?,?)", (update.effective_chat.id, uid, count))
     db.commit()
-    await update.message.reply_text(f"⚠️ User {uid} warned. Total warnings: {count}")
+    if count >= 3:
+        try:
+            from telegram import ChatPermissions
+            await update.effective_chat.restrict_member(uid, ChatPermissions(can_send_messages=False), until_date=int(time.time()+3600))
+            await update.message.reply_text(f"🚫 User {uid} reached 3 warnings and was muted for 1 hour.")
+        except Exception:
+            await update.message.reply_text(f"⚠️ User {uid} warned. Total: {count}/3. Auto-mute failed.")
+    else:
+        await update.message.reply_text(f"⚠️ User {uid} warned. Total: {count}/3.")
 
 async def moderate(update, context, action):
     if not await require_group_admin(update) or not context.args:
@@ -314,6 +323,15 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "profile":
         u = q.from_user
         return await q.edit_message_text(f"👤 {u.full_name}\nID: {u.id}", reply_markup=menu())
+    if data == "history":
+        rows = db.execute("SELECT mode,status,source FROM history WHERE user_id=? ORDER BY id DESC LIMIT 8", (q.from_user.id,)).fetchall()
+        if not rows:
+            return await q.edit_message_text("📜 No history yet.", reply_markup=menu())
+        body = "📜 Recent History
+
+" + "
+".join(f"• {m.upper()} — {st} — {src[:35]}" for m,st,src in rows)
+        return await q.edit_message_text(body, reply_markup=menu())
     if data == "stats":
         users = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         groups = db.execute("SELECT COUNT(*) FROM groups").fetchone()[0]
