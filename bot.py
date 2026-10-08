@@ -30,7 +30,7 @@ DB = Path("nagicorebot.db")
 WORK = Path("downloads")
 WORK.mkdir(exist_ok=True)
 
-URL_RE = re.compile(r"https?://\\S+", re.I)
+URL_RE = re.compile(r"https?://\S+", re.I)
 MEDIA_DOMAINS = ("youtube.com", "youtu.be", "instagram.com")
 
 db = sqlite3.connect(DB, check_same_thread=False)
@@ -43,7 +43,7 @@ db.execute("CREATE TABLE IF NOT EXISTS warnings (chat_id INTEGER, user_id INTEGE
 db.commit()
 db_lock = asyncio.Lock()
 
-spam_cache = {}
+spam_cache = {}\nurl_jobs = {}
 
 def is_admin(uid: int) -> bool:
     return uid in ADMIN_IDS
@@ -170,7 +170,7 @@ async def welcome_cmd(update, context):
 
 async def groupinfo_cmd(update, context):
     c = update.effective_chat
-    await update.message.reply_text(f"👥 {c.title}\\nID: {c.id}\\nMembers: {await c.get_member_count()}")
+    await update.message.reply_text(f"👥 {c.title}\\nID: {c.id}\\nMembers: {await context.bot.get_chat_member_count(c.id)}")
 
 async def warn_cmd(update, context):
     if not await require_group_admin(update) or not context.args:
@@ -456,8 +456,8 @@ def main():
     app.add_handler(CommandHandler("convert", convert_cmd))
     app.add_handler(CommandHandler("admin", admin_cmd))
     app.add_handler(CommandHandler("broadcast", broadcast_cmd))
-    app.add_handler(CallbackQueryHandler(callback, pattern=r"^(?!file\\|)"))
-    app.add_handler(CallbackQueryHandler(file_callback, pattern=r"^file\\|"))
+    app.add_handler(CallbackQueryHandler(callback, pattern=r"^(?!file\|)"))
+    app.add_handler(CallbackQueryHandler(file_callback, pattern=r"^file\|"))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member))
     app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO | filters.AUDIO, media_file_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
