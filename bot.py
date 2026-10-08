@@ -8,9 +8,10 @@ import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
+import io
 
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update
 from telegram.constants import ChatType
 from telegram.ext import (
     Application, CallbackQueryHandler, CommandHandler, ContextTypes,
@@ -42,6 +43,11 @@ db.execute("""CREATE TABLE IF NOT EXISTS groups (
 db.execute("CREATE TABLE IF NOT EXISTS warnings (chat_id INTEGER, user_id INTEGER, count INTEGER, PRIMARY KEY(chat_id,user_id))")
 db.execute("CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, chat_id INTEGER, source TEXT, mode TEXT, status TEXT, created INTEGER)")
 db.commit()
+try:
+    db.execute("ALTER TABLE groups ADD COLUMN welcome_text TEXT DEFAULT '👋 Welcome {name}!'")
+    db.commit()
+except sqlite3.OperationalError:
+    pass
 db_lock = asyncio.Lock()
 
 spam_cache = {}
@@ -294,6 +300,77 @@ async def setdescription_cmd(update, context):
     except Exception:
         await update.message.reply_text("❌ I couldn't update the description.")
 
+def settings_keyboard(row):
+    chat_id = row[0]
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"👋 Welcome: {'ON' if row[3] else 'OFF'}", callback_data=f"gset|welcome|{chat_id}")],
+        [InlineKeyboardButton(f"🔗 Anti-link: {'ON' if row[4] else 'OFF'}", callback_data=f"gset|antilink|{chat_id}")],
+        [InlineKeyboardButton(f"🛡 Anti-spam: {'ON' if row[5] else 'OFF'}", callback_data=f"gset|antispam|{chat_id}")],
+    ])
+
+async def settings_cmd(update, context):
+    if update.effective_chat.type == ChatType.PRIVATE:
+        return await update.message.reply_text("❌ Run /settings inside a group.")
+    if not await require_group_admin(update): return
+    ensure_group(update.effective_chat)
+    row = group_row(update.effective_chat.id)
+    welcome_text = row[6] if len(row) > 6 else "👋 Welcome {name}!"
+    await update.message.reply_text(
+        f"⚙️ Group Settings\n\n👋 Welcome: {'ON' if row[3] else 'OFF'}\n🔗 Anti-link: {'ON' if row[4] else 'OFF'}\n🛡 Anti-spam: {'ON' if row[5] else 'OFF'}\n📝 Welcome text: {welcome_text}",
+        reply_markup=settings_keyboard(row))
+
+async def newgroup_cmd(update, context):
+    await update.message.reply_text("ℹ️ Telegram Bot API cannot create a brand-new group.\n\nCreate the group in Telegram, add me as admin, then run /setup.\nThen use /setname /setdescription /setphoto /setrules /setwelcome /setlink /settings.")
+
+async def setname_cmd(update, context):
+    if update.effective_chat.type == ChatType.PRIVATE or not await require_group_admin(update): return
+    name = " ".join(context.args).strip()
+    if not name: return await update.message.reply_text("Usage: /setname NEW GROUP NAME")
+    try:
+        await context.bot.set_chat_title(update.effective_chat.id, name[:128])
+        ensure_group(update.effective_chat)
+        db.execute("UPDATE groups SET title=? WHERE id=?", (name[:128], update.effective_chat.id))
+        db.commit()
+        await update.message.reply_text("✅ Group name updated.")
+    except Exception: await update.message.reply_text("❌ I couldn't update the group name. Check bot admin permissions.")
+
+async def setrules_cmd(update, context):
+    if update.effective_chat.type == ChatType.PRIVATE or not await require_group_admin(update): return
+    rules = " ".join(context.args).strip()
+    if not rules: return await update.message.reply_text("Usage: /setrules YOUR RULES")
+    ensure_group(update.effective_chat)
+    db.execute("UPDATE groups SET rules=? WHERE id=?", (rules[:4000], update.effective_chat.id))
+    db.commit()
+    await update.message.reply_text("✅ Group rules saved. Use /rules to view them.")
+
+async def setwelcome_cmd(update, context):
+    if update.effective_chat.type == ChatType.PRIVATE or not await require_group_admin(update): return
+    welcome = " ".join(context.args).strip()
+    if not welcome: return await update.message.reply_text("Usage: /setwelcome MESSAGE — use {name} for member name.")
+    ensure_group(update.effective_chat)
+    db.execute("UPDATE groups SET welcome_text=? WHERE id=?", (welcome[:1000], update.effective_chat.id))
+    db.commit()
+    await update.message.reply_text("✅ Welcome message saved.")
+
+async def setphoto_cmd(update, context):
+    if update.effective_chat.type == ChatType.PRIVATE or not await require_group_admin(update): return
+    reply = update.message.reply_to_message
+    if not reply or not reply.photo: return await update.message.reply_text("📷 Reply to a photo with /setphoto.")
+    try:
+        tg_file = await context.bot.get_file(reply.photo[-1].file_id)
+        data = await tg_file.download_as_bytearray()
+        await context.bot.set_chat_photo(update.effective_chat.id, InputFile(io.BytesIO(bytes(data)), filename="group.jpg"))
+        await update.message.reply_text("✅ Group photo updated.")
+    except Exception: await update.message.reply_text("❌ I couldn't update the group photo. Check bot admin permissions.")
+
+async def deletegroup_cmd(update, context):
+    if update.effective_chat.type == ChatType.PRIVATE or not await require_group_admin(update): return
+    if not context.args or context.args[0].upper() != "CONFIRM":
+        return await update.message.reply_text("⚠️ Bots cannot delete Telegram groups. /deletegroup CONFIRM makes NagiCoreBot leave and removes local settings.")
+    chat_id = update.effective_chat.id
+    db.execute("DELETE FROM groups WHERE id=?", (chat_id,)); db.execute("DELETE FROM warnings WHERE chat_id=?", (chat_id,)); db.commit()
+    try: await context.bot.leave_chat(chat_id)
+    except Exception: await update.message.reply_text("❌ Could not leave the group.")
 async def groupinfo_cmd(update, context):
     c = update.effective_chat
     await update.message.reply_text(f"👥 {c.title}\nID: {c.id}\nMembers: {await context.bot.get_chat_member_count(c.id)}")
