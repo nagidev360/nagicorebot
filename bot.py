@@ -43,7 +43,8 @@ db.execute("CREATE TABLE IF NOT EXISTS warnings (chat_id INTEGER, user_id INTEGE
 db.commit()
 db_lock = asyncio.Lock()
 
-spam_cache = {}\nurl_jobs = {}
+spam_cache = {}
+url_jobs = {}
 
 def is_admin(uid: int) -> bool:
     return uid in ADMIN_IDS
@@ -62,7 +63,8 @@ def ensure_group(chat):
     db.commit()
 
 def group_row(chat_id):
-    ensure_group(type("C", (), {"id": chat_id, "title": ""})())
+    db.execute("INSERT OR IGNORE INTO groups(id,title) VALUES(?,?)", (chat_id, "Group"))
+    db.commit()
     return db.execute("SELECT * FROM groups WHERE id=?", (chat_id,)).fetchone()
 
 def menu():
@@ -252,9 +254,11 @@ async def download_media(url, mode):
         raise
 
 async def media_buttons(url):
+    token = uuid.uuid4().hex[:12]
+    url_jobs[token] = (url, time.time())
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("🎬 MP4", callback_data="dl|mp4|" + url),
-        InlineKeyboardButton("🎵 MP3", callback_data="dl|mp3|" + url)
+        InlineKeyboardButton("🎬 MP4", callback_data="dl|mp4|" + token),
+        InlineKeyboardButton("🎵 MP3", callback_data="dl|mp3|" + token)
     ], [InlineKeyboardButton("❌ Cancel", callback_data="close")]])
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -311,7 +315,12 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=menu()
         )
     if data.startswith("dl|"):
-        _, mode, url = data.split("|", 2)
+        _, mode, token = data.split("|", 2)
+        job_data = url_jobs.get(token)
+        if not job_data or time.time() - job_data[1] > DOWNLOAD_TTL * 60:
+            url_jobs.pop(token, None)
+            return await q.message.reply_text("❌ This download button has expired. Send the URL again.")
+        url = job_data[0]
         await q.edit_message_text("⏳ Processing media…")
         try:
             path, job = await download_media(url, mode)
@@ -324,6 +333,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     await q.message.reply_video(f, filename=path.name, supports_streaming=True)
             shutil.rmtree(job, ignore_errors=True)
+            url_jobs.pop(token, None)
         except Exception as e:
             log.warning("download error: %s", e)
             await q.message.reply_text(
