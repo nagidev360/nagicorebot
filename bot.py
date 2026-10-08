@@ -40,6 +40,7 @@ db.execute("""CREATE TABLE IF NOT EXISTS groups (
     welcome INTEGER DEFAULT 1, antilink INTEGER DEFAULT 0, antispam INTEGER DEFAULT 1
 )""")
 db.execute("CREATE TABLE IF NOT EXISTS warnings (chat_id INTEGER, user_id INTEGER, count INTEGER, PRIMARY KEY(chat_id,user_id))")
+db.execute("CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, chat_id INTEGER, source TEXT, mode TEXT, status TEXT, created INTEGER)")
 db.commit()
 db_lock = asyncio.Lock()
 
@@ -79,7 +80,7 @@ def menu():
 def help_text():
     return (
         f"🤖 {BOT_NAME}\n\n"
-        "DM:\n/start /menu /help /profile /id /stats /convert\n\n"
+        "DM:\n/start /menu /help /profile /id /stats /history /convert\n\n"
         "Group:\n/setup /rules /welcome /antispam /antilink /warn /mute /unmute "
         "/kick /ban /unban /groupinfo /id /ping\n\n"
         "🎬 Send a permitted YouTube or Instagram URL to get MP4/MP3 options.\n"
@@ -224,7 +225,7 @@ def valid_media_url(url):
     except Exception:
         return False
 
-async def download_media(url, mode):
+async def download_media(url, mode, quality="best"):
     job = WORK / uuid.uuid4().hex
     job.mkdir()
     output = job / "%(title).80s.%(ext)s"
@@ -242,7 +243,12 @@ async def download_media(url, mode):
             "key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"
         }]})
     else:
-        opts.update({"format": "bv*+ba/b", "merge_output_format": "mp4"})
+        fmt = "bv*+ba/b"
+        if quality == "720":
+            fmt = "bv*[height<=720]+ba/b[height<=720]"
+        elif quality == "480":
+            fmt = "bv*[height<=480]+ba/b[height<=480]"
+        opts.update({"format": fmt, "merge_output_format": "mp4"})
     try:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(opts).download([url]))
@@ -256,10 +262,13 @@ async def download_media(url, mode):
 async def media_buttons(url):
     token = uuid.uuid4().hex[:12]
     url_jobs[token] = (url, time.time())
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("🎬 MP4", callback_data="dl|mp4|" + token),
-        InlineKeyboardButton("🎵 MP3", callback_data="dl|mp3|" + token)
-    ], [InlineKeyboardButton("❌ Cancel", callback_data="close")]])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎬 MP4 Best", callback_data="dl|mp4|best|" + token)],
+        [InlineKeyboardButton("🎬 MP4 720p", callback_data="dl|mp4|720|" + token),
+         InlineKeyboardButton("🎬 MP4 480p", callback_data="dl|mp4|480|" + token)],
+        [InlineKeyboardButton("🎵 MP3 192k", callback_data="dl|mp3|best|" + token)],
+        [InlineKeyboardButton("❌ Cancel", callback_data="close")]
+    ])
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -315,7 +324,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=menu()
         )
     if data.startswith("dl|"):
-        _, mode, token = data.split("|", 2)
+        _, mode, quality, token = data.split("|", 3)
         job_data = url_jobs.get(token)
         if not job_data or time.time() - job_data[1] > DOWNLOAD_TTL * 60:
             url_jobs.pop(token, None)
@@ -323,7 +332,7 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         url = job_data[0]
         await q.edit_message_text("⏳ Processing media…")
         try:
-            path, job = await download_media(url, mode)
+            path, job = await download_media(url, mode, quality)
             size = path.stat().st_size
             if size > MAX_MB * 1024 * 1024:
                 raise RuntimeError("File exceeds configured Telegram upload limit.")
@@ -332,10 +341,16 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await q.message.reply_audio(f, filename=path.name)
                 else:
                     await q.message.reply_video(f, filename=path.name, supports_streaming=True)
+            db.execute("INSERT INTO history(user_id,chat_id,source,mode,status,created) VALUES(?,?,?,?,?,?)",
+                       (q.from_user.id, q.message.chat_id, url, mode, "success", int(time.time())))
+            db.commit()
             shutil.rmtree(job, ignore_errors=True)
             url_jobs.pop(token, None)
         except Exception as e:
             log.warning("download error: %s", e)
+            db.execute("INSERT INTO history(user_id,chat_id,source,mode,status,created) VALUES(?,?,?,?,?,?)",
+                       (q.from_user.id, q.message.chat_id, url, mode, "failed", int(time.time())))
+            db.commit()
             await q.message.reply_text(
                 "❌ Download/conversion failed. The URL may be unavailable, restricted, "
                 "unsupported, or larger than the configured limit."
@@ -450,6 +465,7 @@ def main():
     app.add_handler(CommandHandler("id", id_cmd))
     app.add_handler(CommandHandler("profile", profile_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
+    app.add_handler(CommandHandler("history", history_cmd))
     app.add_handler(CommandHandler("ping", ping_cmd))
     app.add_handler(CommandHandler("setup", setup_cmd))
     app.add_handler(CommandHandler("rules", rules_cmd))
