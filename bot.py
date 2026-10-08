@@ -208,6 +208,92 @@ async def invite_cmd(update, context):
         )
 
 
+async def rules_cmd(update, context):
+    c = update.effective_chat
+    ensure_group(c)
+    row = db.execute("SELECT rules FROM groups WHERE id=?", (c.id,)).fetchone()
+    rules = row[0] if row and row[0] else "No rules configured yet. Admins can add rules from the bot settings."
+    await update.message.reply_text(f"📜 <b>{c.title} Rules</b>\\n\\n{rules}", parse_mode="HTML")
+
+async def setup_cmd(update, context):
+    if update.effective_chat.type == ChatType.PRIVATE:
+        return await update.message.reply_text("❌ Run /setup inside your group.")
+    if not await require_group_admin(update):
+        return
+    ensure_group(update.effective_chat)
+    db.execute("UPDATE groups SET welcome=1, antispam=1, antilink=0 WHERE id=?", (update.effective_chat.id,))
+    db.commit()
+    await update.message.reply_text(
+        "✅ <b>Group setup completed</b>\\n\\n"
+        "👋 Welcome: ON\\n"
+        "🛡 Anti-spam: ON\\n"
+        "🔗 Anti-link: OFF\\n"
+        "⚠️ Warning system: 3 warnings → 1h mute\\n"
+        "🔗 Invite: /invite\\n"
+        "📜 Rules: /rules",
+        parse_mode="HTML"
+    )
+
+async def lock_cmd(update, context):
+    if not await require_group_admin(update):
+        return
+    from telegram import ChatPermissions
+    try:
+        await update.effective_chat.set_permissions(ChatPermissions(can_send_messages=False))
+        await update.message.reply_text("🔒 Group locked. Only admins can send messages.")
+    except Exception:
+        await update.message.reply_text("❌ I need permission to restrict members.")
+
+async def unlock_cmd(update, context):
+    if not await require_group_admin(update):
+        return
+    from telegram import ChatPermissions
+    try:
+        await update.effective_chat.set_permissions(ChatPermissions(can_send_messages=True))
+        await update.message.reply_text("🔓 Group unlocked.")
+    except Exception:
+        await update.message.reply_text("❌ I need permission to manage group permissions.")
+
+async def clear_cmd(update, context):
+    if not await require_group_admin(update):
+        return
+    if not update.message.reply_to_message:
+        return await update.message.reply_text("Reply to a message with /clear.")
+    try:
+        await context.bot.delete_message(update.effective_chat.id, update.message.reply_to_message.message_id)
+        await update.message.delete()
+    except Exception:
+        await update.message.reply_text("❌ I couldn't delete that message.")
+
+async def promote_cmd(update, context):
+    if not await require_group_admin(update) or not context.args:
+        return await update.message.reply_text("Usage: /promote USER_ID")
+    try:
+        uid=int(context.args[0])
+        await context.bot.promote_chat_member(update.effective_chat.id, uid, can_manage_chat=True, can_delete_messages=True, can_restrict_members=True, can_invite_users=True)
+        await update.message.reply_text(f"✅ User {uid} promoted.")
+    except Exception:
+        await update.message.reply_text("❌ Promotion failed. Check bot permissions and target user.")
+
+async def demote_cmd(update, context):
+    if not await require_group_admin(update) or not context.args:
+        return await update.message.reply_text("Usage: /demote USER_ID")
+    try:
+        uid=int(context.args[0])
+        await context.bot.promote_chat_member(update.effective_chat.id, uid, can_manage_chat=False, can_delete_messages=False, can_restrict_members=False, can_invite_users=False)
+        await update.message.reply_text(f"✅ User {uid} demoted.")
+    except Exception:
+        await update.message.reply_text("❌ Demotion failed.")
+
+async def setdescription_cmd(update, context):
+    if not await require_group_admin(update) or not context.args:
+        return await update.message.reply_text("Usage: /setdescription TEXT")
+    try:
+        await context.bot.set_chat_description(update.effective_chat.id, " ".join(context.args))
+        await update.message.reply_text("✅ Group description updated.")
+    except Exception:
+        await update.message.reply_text("❌ I couldn't update the description.")
+
 async def groupinfo_cmd(update, context):
     c = update.effective_chat
     await update.message.reply_text(f"👥 {c.title}\nID: {c.id}\nMembers: {await context.bot.get_chat_member_count(c.id)}")
@@ -526,6 +612,14 @@ def main():
     app.add_handler(CommandHandler("antispam", antispam_cmd))
     app.add_handler(CommandHandler("welcome", welcome_cmd))
     app.add_handler(CommandHandler("invite", invite_cmd))
+    app.add_handler(CommandHandler("setup", setup_cmd))
+    app.add_handler(CommandHandler("rules", rules_cmd))
+    app.add_handler(CommandHandler("lock", lock_cmd))
+    app.add_handler(CommandHandler("unlock", unlock_cmd))
+    app.add_handler(CommandHandler("clear", clear_cmd))
+    app.add_handler(CommandHandler("promote", promote_cmd))
+    app.add_handler(CommandHandler("demote", demote_cmd))
+    app.add_handler(CommandHandler("setdescription", setdescription_cmd))
     app.add_handler(CommandHandler("groupinfo", groupinfo_cmd))
     app.add_handler(CommandHandler("warn", warn_cmd))
     app.add_handler(CommandHandler("mute", mute_cmd))
