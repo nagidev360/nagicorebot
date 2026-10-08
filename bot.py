@@ -113,6 +113,20 @@ async def id_cmd(update, context):
     u, c = update.effective_user, update.effective_chat
     await update.message.reply_text(f"👤 User ID: {u.id}\n💬 Chat ID: {c.id}")
 
+async def history_cmd(update, context):
+    u = update.effective_user
+    rows = db.execute(
+        "SELECT mode,status,source FROM history WHERE user_id=? ORDER BY id DESC LIMIT 10",
+        (u.id,)
+    ).fetchall()
+    if not rows:
+        return await update.message.reply_text("📜 No history yet.")
+    lines = ["📜 Recent History", ""]
+    for mode, status, source in rows:
+        lines.append(f"• {mode.upper()} — {status} — {source[:45]}")
+    await update.message.reply_text("\n".join(lines))
+
+
 async def profile_cmd(update, context):
     u = update.effective_user
     remember_user(u)
