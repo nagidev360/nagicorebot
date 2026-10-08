@@ -539,6 +539,24 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🎬 Send a permitted YouTube/Instagram URL, or send a media file to convert.",
             reply_markup=menu()
         )
+    if data.startswith("gset|"):
+        _, field, chat_id_raw = data.split("|", 2)
+        try:
+            chat_id = int(chat_id_raw)
+            member = await context.bot.get_chat_member(chat_id, q.from_user.id)
+            if member.status not in ("administrator", "creator") and not is_admin(q.from_user.id):
+                return await q.answer("Admin permission required.", show_alert=True)
+            if field not in ("welcome", "antilink", "antispam"):
+                return await q.answer("Invalid setting.", show_alert=True)
+            indexes = {"welcome": 3, "antilink": 4, "antispam": 5}
+            row = group_row(chat_id)
+            current = bool(row[indexes[field]])
+            db.execute(f"UPDATE groups SET {field}=? WHERE id=?", (int(not current), chat_id))
+            db.commit()
+            await q.edit_message_reply_markup(reply_markup=settings_keyboard(group_row(chat_id)))
+            return await q.answer(f"{field}: {'ON' if not current else 'OFF'}")
+        except Exception:
+            return await q.answer("Could not update setting.", show_alert=True)
     if data.startswith("dl|"):
         _, mode, quality, token = data.split("|", 3)
         job_data = url_jobs.get(token)
@@ -631,8 +649,11 @@ async def file_callback(update, context):
 async def new_member(update, context):
     row = group_row(update.effective_chat.id)
     if not row[3]: return
+    template = row[6] if len(row) > 6 and row[6] else "👋 Welcome {name}!"
     for member in update.message.new_chat_members:
-        await update.message.reply_text(f"👋 Welcome {member.mention_html()}!", parse_mode="HTML")
+        name = member.first_name or member.full_name
+        text = template.replace("{name}", name).replace("{username}", "@" + member.username if member.username else name)
+        await update.message.reply_text(text)
 
 async def admin_cmd(update, context):
     if not is_admin(update.effective_user.id):
@@ -689,6 +710,15 @@ def main():
     app.add_handler(CommandHandler("antispam", antispam_cmd))
     app.add_handler(CommandHandler("welcome", welcome_cmd))
     app.add_handler(CommandHandler("invite", invite_cmd))
+    app.add_handler(CommandHandler("setlink", invite_cmd))
+    app.add_handler(CommandHandler("newgroup", newgroup_cmd))
+    app.add_handler(CommandHandler("setname", setname_cmd))
+    app.add_handler(CommandHandler("setdescription", setdescription_cmd))
+    app.add_handler(CommandHandler("setphoto", setphoto_cmd))
+    app.add_handler(CommandHandler("setrules", setrules_cmd))
+    app.add_handler(CommandHandler("setwelcome", setwelcome_cmd))
+    app.add_handler(CommandHandler("settings", settings_cmd))
+    app.add_handler(CommandHandler("deletegroup", deletegroup_cmd))
     app.add_handler(CommandHandler("setup", setup_cmd))
     app.add_handler(CommandHandler("rules", rules_cmd))
     app.add_handler(CommandHandler("lock", lock_cmd))
