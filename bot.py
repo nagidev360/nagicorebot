@@ -78,11 +78,11 @@ def menu():
 
 def help_text():
     return (
-        f"🤖 {BOT_NAME}\\n\\n"
-        "DM:\\n/start /menu /help /profile /id /stats /convert\\n\\n"
-        "Group:\\n/setup /rules /welcome /antispam /antilink /warn /mute /unmute "
-        "/kick /ban /unban /groupinfo /id /ping\\n\\n"
-        "🎬 Send a permitted YouTube or Instagram URL to get MP4/MP3 options.\\n"
+        f"🤖 {BOT_NAME}\n\n"
+        "DM:\n/start /menu /help /profile /id /stats /convert\n\n"
+        "Group:\n/setup /rules /welcome /antispam /antilink /warn /mute /unmute "
+        "/kick /ban /unban /groupinfo /id /ping\n\n"
+        "🎬 Send a permitted YouTube or Instagram URL to get MP4/MP3 options.\n"
         "📁 Send a video/audio file and use /convert for conversion."
     )
 
@@ -91,7 +91,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     remember_user(user)
     if update.effective_chat.type == ChatType.PRIVATE:
         await update.message.reply_text(
-            f"👋 Welcome, {user.first_name}!\\n\\n{BOT_NAME} is ready.\\n"
+            f"👋 Welcome, {user.first_name}!\n\n{BOT_NAME} is ready.\n"
             "Send a supported media URL or choose an option below.",
             reply_markup=menu()
         )
@@ -109,19 +109,19 @@ async def help_cmd(update, context):
 
 async def id_cmd(update, context):
     u, c = update.effective_user, update.effective_chat
-    await update.message.reply_text(f"👤 User ID: {u.id}\\n💬 Chat ID: {c.id}")
+    await update.message.reply_text(f"👤 User ID: {u.id}\n💬 Chat ID: {c.id}")
 
 async def profile_cmd(update, context):
     u = update.effective_user
     remember_user(u)
     await update.message.reply_text(
-        f"👤 Profile\\nName: {u.full_name}\\nUsername: @{u.username or 'none'}\\nID: {u.id}"
+        f"👤 Profile\nName: {u.full_name}\nUsername: @{u.username or 'none'}\nID: {u.id}"
     )
 
 async def stats_cmd(update, context):
     users = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     groups = db.execute("SELECT COUNT(*) FROM groups").fetchone()[0]
-    await update.message.reply_text(f"📊 Bot Statistics\\nUsers: {users}\\nGroups: {groups}")
+    await update.message.reply_text(f"📊 Bot Statistics\nUsers: {users}\nGroups: {groups}")
 
 async def ping_cmd(update, context):
     await update.message.reply_text("🏓 Pong!")
@@ -133,8 +133,8 @@ async def setup_cmd(update, context):
         return
     ensure_group(update.effective_chat)
     await update.message.reply_text(
-        "⚙️ Group configured.\\n\\n"
-        "Commands:\\n/antilink on|off\\n/antispam on|off\\n/welcome on|off"
+        "⚙️ Group configured.\n\n"
+        "Commands:\n/antilink on|off\n/antispam on|off\n/welcome on|off"
     )
 
 async def require_group_admin(update):
@@ -148,7 +148,7 @@ async def rules_cmd(update, context):
     if update.effective_chat.type == ChatType.PRIVATE:
         return await update.message.reply_text("Rules are available in groups.")
     row = group_row(update.effective_chat.id)
-    await update.message.reply_text(f"📜 Group Rules\\n\\n{row[2]}")
+    await update.message.reply_text(f"📜 Group Rules\n\n{row[2]}")
 
 async def toggle_cmd(update, context, field):
     if update.effective_chat.type == ChatType.PRIVATE or not await require_group_admin(update):
@@ -172,7 +172,7 @@ async def welcome_cmd(update, context):
 
 async def groupinfo_cmd(update, context):
     c = update.effective_chat
-    await update.message.reply_text(f"👥 {c.title}\\nID: {c.id}\\nMembers: {await context.bot.get_chat_member_count(c.id)}")
+    await update.message.reply_text(f"👥 {c.title}\nID: {c.id}\nMembers: {await context.bot.get_chat_member_count(c.id)}")
 
 async def warn_cmd(update, context):
     if not await require_group_admin(update) or not context.args:
@@ -304,11 +304,11 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await q.edit_message_text(help_text(), reply_markup=menu())
     if data == "profile":
         u = q.from_user
-        return await q.edit_message_text(f"👤 {u.full_name}\\nID: {u.id}", reply_markup=menu())
+        return await q.edit_message_text(f"👤 {u.full_name}\nID: {u.id}", reply_markup=menu())
     if data == "stats":
         users = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         groups = db.execute("SELECT COUNT(*) FROM groups").fetchone()[0]
-        return await q.edit_message_text(f"📊 Users: {users}\\nGroups: {groups}", reply_markup=menu())
+        return await q.edit_message_text(f"📊 Users: {users}\nGroups: {groups}", reply_markup=menu())
     if data in ("media", "convert"):
         return await q.edit_message_text(
             "🎬 Send a permitted YouTube/Instagram URL, or send a media file to convert.",
@@ -407,8 +407,8 @@ async def admin_cmd(update, context):
     if not is_admin(update.effective_user.id):
         return await update.message.reply_text("❌ Owner only.")
     await update.message.reply_text(
-        "👑 Admin Panel\\n\\n"
-        "/stats — bot statistics\\n"
+        "👑 Admin Panel\n\n"
+        "/stats — bot statistics\n"
         "/broadcast MESSAGE — send to known users"
     )
 
