@@ -81,7 +81,7 @@ def menu():
 def help_text():
     return (
         f"🤖 {BOT_NAME}\n\n"
-        "DM:\n/start /menu /help /profile /id /stats /history /convert\n\n"
+        "DM:\n/start /menu /help /profile /id /stats /history /convert\nGroup: /setup /rules /welcome /antispam /antilink /invite /warn /mute /unmute /kick /ban /unban /groupinfo /id /ping\n\n"
         "Group:\n/setup /rules /welcome /antispam /antilink /warn /mute /unmute "
         "/kick /ban /unban /groupinfo /id /ping\n\n"
         "🎬 Send a permitted YouTube or Instagram URL to get MP4/MP3 options.\n"
@@ -185,6 +185,28 @@ async def antispam_cmd(update, context):
 
 async def welcome_cmd(update, context):
     await toggle_cmd(update, context, "welcome")
+
+async def invite_cmd(update, context):
+    if update.effective_chat.type == ChatType.PRIVATE:
+        return await update.message.reply_text("❌ Use /invite inside a group.")
+    if not await require_group_admin(update):
+        return
+    try:
+        link = await context.bot.create_chat_invite_link(
+            chat_id=update.effective_chat.id,
+            name="NagiCoreBot Invite"
+        )
+        await update.message.reply_text(
+            f"🔗 <b>Group Invite Link</b>\\n\\n{link.invite_link}",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        log.warning("invite link error: %s", e)
+        await update.message.reply_text(
+            "❌ I couldn't create an invite link. Make sure I'm an admin "
+            "with permission to invite users."
+        )
+
 
 async def groupinfo_cmd(update, context):
     c = update.effective_chat
@@ -503,6 +525,7 @@ def main():
     app.add_handler(CommandHandler("antilink", antilink_cmd))
     app.add_handler(CommandHandler("antispam", antispam_cmd))
     app.add_handler(CommandHandler("welcome", welcome_cmd))
+    app.add_handler(CommandHandler("invite", invite_cmd))
     app.add_handler(CommandHandler("groupinfo", groupinfo_cmd))
     app.add_handler(CommandHandler("warn", warn_cmd))
     app.add_handler(CommandHandler("mute", mute_cmd))
